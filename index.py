@@ -56,7 +56,7 @@ def mm1_simulation(lambda_val, mu_val):
     obs_numbers = list(range(1, len(arrival_times) + 1))
 
     # --- New Columns: Service Time, Start Time, End Time ---
-    service_times = [round(-mu_val * math.log(np.random.rand())) for _ in range(len(arrival_times))]
+    service_times = [max(1, math.ceil(-mu_val * math.log(np.random.rand()))) for _ in range(len(arrival_times))]
     service_starts = [0] * len(arrival_times)
     service_ends = [0] * len(arrival_times)
 
@@ -156,7 +156,7 @@ def mms_simulation(lambda_val, mu_val, servers):
     obs_numbers = list(range(1, len(arrival_times) + 1))
 
     # --- Service times (Exponential Distribution) ---
-    service_times = [round(-mu_val * math.log(np.random.rand())) for _ in range(len(arrival_times))]
+    service_times = [max(1, math.ceil(-mu_val * math.log(np.random.rand()))) for _ in range(len(arrival_times))]
 
     # --- Multi-server scheduling logic ---
     server_end_times = [0] * servers  # track end time of each server
@@ -165,9 +165,17 @@ def mms_simulation(lambda_val, mu_val, servers):
     server_assigned = []
 
     for i in range(len(arrival_times)):
-        # Find server that gets free earliest
-        next_available = min(server_end_times)
-        server_idx = server_end_times.index(next_available)
+        # 1. Identify which servers are currently idle (free)
+        free_servers = [idx for idx, end_time in enumerate(server_end_times) if end_time <= arrival_times[i]]
+
+        if free_servers:
+            # 2. If servers are free, pick the one with the lowest index (Priority: S1 > S2 > S3)
+            server_idx = min(free_servers)
+            next_available = server_end_times[server_idx]
+        else:
+            # 3. If all busy, pick the one that finishes earliest
+            next_available = min(server_end_times)
+            server_idx = server_end_times.index(next_available)
 
         # Start time is max(arrival time, server free time)
         start_time = max(arrival_times[i], next_available)
@@ -282,6 +290,14 @@ def show_table(parent_frame, df, lambda_val, mu_val, servers):
         if servers and servers != 1:
             tk.Label(params_frame, text=f"Servers = {servers}", font=("Arial", 14, "bold"), fg="#eeeecc", bg="#666633").pack(anchor="center", pady=1)
 
+    tk.Label(
+        header_frame,
+        text="Customer Data Chart",
+        font=("Arial", 18, "bold"),
+        fg="white",
+        bg="#666633"
+    ).pack(pady=(10, 5))
+
     # --- TABLE (centered) ---
     table_wrapper = tk.Frame(scrollable_frame, bg="#666633")
     table_wrapper.pack(pady=(10, 50), fill="x")
@@ -323,6 +339,13 @@ def show_table(parent_frame, df, lambda_val, mu_val, servers):
     for j in range(total_cols):
         table_frame.grid_columnconfigure(j, weight=1)
 
+    # If it's MM1
+    if servers is None or servers == 1:
+        create_averages_frame(scrollable_frame, df, lambda_val, mu_val)
+    else:
+    # MMS case
+        create_averages_frame(scrollable_frame, df, lambda_val, mu_val, servers=servers)
+
     if servers is not None and servers > 1:
         draw_mms_gantt(df, scrollable_frame)
     else:
@@ -330,6 +353,77 @@ def show_table(parent_frame, df, lambda_val, mu_val, servers):
 
     # Spacer at bottom
     tk.Label(scrollable_frame, text="", bg="#666633").pack(pady=40)
+
+
+#M/M/1 AND M/M/S SIMULATION RESULTS 
+def create_averages_frame(parent_frame, df, lambda_val, mu_val, servers=None):
+    """
+    Creates a labeled frame under the table to show simulation averages,
+    updates the values immediately.
+    """
+    averages_frame = tk.LabelFrame(
+        parent_frame, text="Simulation Results",
+        font=("Arial", 16, "bold"), fg="white", bg="#666633",
+        bd=2, relief="groove", padx=20, pady=10,
+        width=int(parent_frame.winfo_screenwidth() * 0.4)
+    )
+    averages_frame.pack(pady=(0,20), anchor="center")  # bottom center under the table
+
+    # Create labels
+    lbl_avg_turnaround = tk.Label(averages_frame, text="0",font=("Arial", 13), bg="#666633", fg="white")
+    lbl_avg_wait = tk.Label(averages_frame, text="0",font=("Arial", 13), bg="#666633", fg="white")
+    lbl_avg_response = tk.Label(averages_frame, text="0",font=("Arial", 13), bg="#666633", fg="white")
+    lbl_avg_interarrival = tk.Label(averages_frame, text="0",font=("Arial", 13), bg="#666633", fg="white")
+    lbl_avg_service = tk.Label(averages_frame, text="0",font=("Arial", 13), bg="#666633", fg="white")
+    lbl_utilization = tk.Label(averages_frame, text="0",font=("Arial", 13), bg="#666633", fg="white")
+    lbl_total_customers = tk.Label(averages_frame, text="0",font=("Arial", 13), bg="#666633", fg="white")
+
+    # Labels grid
+    labels = [
+        ("Avg Turnaround Time:", lbl_avg_turnaround),
+        ("Avg Wait Time:", lbl_avg_wait),
+        ("Avg Response Time:", lbl_avg_response),
+        ("Avg Inter-arrival Time:", lbl_avg_interarrival),
+        ("Avg Service Time:", lbl_avg_service),
+        ("Server Utilization:", lbl_utilization),
+        ("Total Customers:", lbl_total_customers)
+    ]
+
+    for i, (text_label, value_label) in enumerate(labels):
+        tk.Label(averages_frame, text=text_label, bg="#666633", fg="white").grid(
+            row=i, column=0, sticky="w", padx=5, pady=2
+        )
+        value_label.grid(row=i, column=1, sticky="w", padx=5, pady=2)
+
+    # --- Update values immediately ---
+    if servers and servers > 1:
+        # MMS averages (if you have a separate function)
+        update_mms_averages(
+            df, lambda_val, mu_val, servers,
+            lbl_avg_turnaround,
+            lbl_avg_wait,
+            lbl_avg_response,
+            lbl_avg_interarrival,
+            lbl_avg_service,
+            lbl_utilization,
+            lbl_total_customers
+        )
+    else:
+        # MM1 averages
+        update_simulation_averages(
+            df, lambda_val, mu_val,
+            lbl_avg_turnaround,
+            lbl_avg_wait,
+            lbl_avg_response,
+            lbl_avg_interarrival,
+            lbl_avg_service,
+            lbl_utilization,
+            lbl_total_customers
+        )
+
+    return averages_frame  # in case you need to reference it later
+
+
 
 #MM1 Gant Chart
 def draw_mm1_gantt(df, scrollable_frame):
@@ -397,7 +491,7 @@ def draw_mm1_gantt(df, scrollable_frame):
         ax.set_ylim(-0.5, 1.2)
         ax.axis('off')
         ax.set_title(
-            "Server Utilization Timeline",
+            "Server Utilization Gantt Chart",
             fontdict={'family': 'Arial', 'size': 16, 'weight': 'bold', 'color': 'white'},
             pad=10
         )
@@ -485,7 +579,7 @@ def draw_mms_gantt(df, scrollable_frame):
         ax.set_xlim(0, total_boxes * box_width if total_boxes > 0 else 1)
         ax.set_ylim(-0.5, 1.2)
         ax.axis('off')
-        ax.set_title(f"{srv} Utilization Timeline",
+        ax.set_title(f"{srv} Utilization Gantt Chart",
                      fontdict={'family': 'Arial', 'size': 16, 'weight': 'bold', 'color': 'white'},
                      pad=10)
 
@@ -494,6 +588,72 @@ def draw_mms_gantt(df, scrollable_frame):
         gantt_canvas.get_tk_widget().pack(pady=5, anchor="center")
 
     tk.Label(scrollable_frame, text="", bg="#666633").pack(pady=40)
+
+# M/M/1 SIMULATION RESULTS
+def update_simulation_averages(
+    df, lambda_val, mu_val,
+    lbl_avg_turnaround,
+    lbl_avg_wait,
+    lbl_avg_response,
+    lbl_avg_interarrival,
+    lbl_avg_service,
+    lbl_utilization,
+    lbl_total_customers
+):
+    avg_turnaround = df["Turnaround Time"].mean()
+    avg_wait = df["Wait Time"].mean()
+    avg_response = df["Response Time"].mean()
+    avg_interarrival = df["Inter-arrivals"].mean()
+    avg_service = df["Service Time"].mean()
+    total_busy = df['Service Time'].sum()
+    total_time = df['Service End'].max() - df['Service Start'].min()
+    server_utilization = (total_busy / total_time) * 100  # in %
+    total_customers = len(df)
+
+    lbl_avg_turnaround.config(text=f"{avg_turnaround:.2f}")
+    lbl_avg_wait.config(text=f"{avg_wait:.2f}")
+    lbl_avg_response.config(text=f"{avg_response:.2f}")
+    lbl_avg_interarrival.config(text=f"{avg_interarrival:.2f}")
+    lbl_avg_service.config(text=f"{avg_service:.2f}")
+    lbl_utilization.config(text=f"{server_utilization:.2f}%")
+    lbl_total_customers.config(text=str(total_customers))
+
+# M/M/S SIMULATION RESULTS
+def update_mms_averages(
+    df, lambda_val, mu_val, servers,
+    lbl_avg_turnaround,
+    lbl_avg_wait,
+    lbl_avg_response,
+    lbl_avg_interarrival,
+    lbl_avg_service,
+    lbl_utilization,
+    lbl_total_customers
+):
+    # --- Calculate averages ---
+    avg_turnaround = df["Turnaround Time"].mean()
+    avg_wait = df["Wait Time"].mean()
+    avg_response = df["Response Time"].mean()
+    avg_interarrival = df["Inter-arrivals"].mean()
+    avg_service = df["Service Time"].mean()
+    servers = df['Server'].nunique()
+    total_time_observed = df['Service End'].max() - df['Service Start'].min()  # overall simulation duration
+    # Calculate total busy time across all servers
+    total_busy_time = 0
+    for srv in df['Server'].unique():
+        srv_df = df[df['Server'] == srv]
+        total_busy_time += srv_df['Service End'].sum() - srv_df['Service Start'].sum()
+    # True utilization in %
+    server_utilization = (total_busy_time / (total_time_observed * servers)) * 100
+    total_customers = len(df)
+
+    # --- Update labels ---
+    lbl_avg_turnaround.config(text=f"{avg_turnaround:.2f}")
+    lbl_avg_wait.config(text=f"{avg_wait:.2f}")
+    lbl_avg_response.config(text=f"{avg_response:.2f}")
+    lbl_avg_interarrival.config(text=f"{avg_interarrival:.2f}")
+    lbl_avg_service.config(text=f"{avg_service:.2f}")
+    lbl_utilization.config(text=f"{server_utilization:.2f}%")
+    lbl_total_customers.config(text=str(total_customers))
 
 
 # MM1 Input page container
@@ -507,7 +667,7 @@ def mm1_input_page():
     container.pack(expand=True)
 
     # Header Label
-    tk.Label(container, text="M/M/1 Parameters", font=("Arial", 22, "bold"),
+    tk.Label(container, text="Input M/M/1 System Parameters", font=("Arial", 22, "bold"),
              fg="white", bg="#666633").pack(pady=30)
     # Lambda input
     tk.Label(container, text="Lambda (λ):", font=("Arial", 13, "bold"), fg="white", bg="#666633").pack(pady=5)
@@ -560,7 +720,7 @@ def mm1_input_page():
     # --- Simulate Button ---
     shadow_simulate = tk.Frame(container, bg="#333311")
     shadow_simulate.pack(pady=15)
-    btn_simulate = tk.Button(shadow_simulate, text="Simulate", font=("Arial", 16, "bold"),
+    btn_simulate = tk.Button(shadow_simulate, text="Run Simulation", font=("Arial", 16, "bold"),
                              bg="#888844", fg="white", bd=0, relief="flat",
                              activebackground="#777733", activeforeground="white",
                              command=run_simulation)
@@ -591,7 +751,7 @@ def mms_input_page():
     container.pack(expand=True)
 
     # Header Label
-    tk.Label(container, text="M/M/S Parameters", font=("Arial", 22, "bold"),
+    tk.Label(container, text="Input M/M/S System Parameters", font=("Arial", 22, "bold"),
              fg="white", bg="#666633").pack(pady=30)
     # Lambda input
     tk.Label(container, text="Lambda (λ):", font=("Arial", 13, "bold"), fg="white", bg="#666633").pack(pady=(0,5))
@@ -654,7 +814,7 @@ def mms_input_page():
     # --- Simulate Button ---
     shadow_simulate = tk.Frame(container, bg="#333311")
     shadow_simulate.pack(pady=15)
-    btn_simulate = tk.Button(shadow_simulate, text="Simulate", font=("Arial", 16, "bold"),
+    btn_simulate = tk.Button(shadow_simulate, text="Run Simulation", font=("Arial", 16, "bold"),
                              bg="#888844", fg="white", bd=0, relief="flat",
                              activebackground="#777733", activeforeground="white",
                              command=run_simulation)
@@ -696,11 +856,11 @@ for frame in (main_frame, mm1_frame, mms_frame):
 main_container = tk.Frame(main_frame, bg="#666633")
 main_container.pack(expand=True)
 # Label
-tk.Label(main_container, text="CHOOSE SIMULATION MODEL", font=("Arial", 22, "bold"), fg="white", bg="#666633").pack(pady=30)
+tk.Label(main_container, text="QUEUEING MODEL SELECTION", font=("Arial", 22, "bold"), fg="white", bg="#666633").pack(pady=30)
 #Button for M/M/1
 shadow1 = tk.Frame(main_container, bg="#333311")  # deeper shadow
 shadow1.pack(pady=25)
-btn_mm1 = tk.Button(shadow1, text="M/M/1", font=("Arial", 16, "bold"),
+btn_mm1 = tk.Button(shadow1, text="M/M/1 MODEL", font=("Arial", 16, "bold"),
                     bg="#888844", fg="white", bd=0, relief="flat",
                     activebackground="#777733", activeforeground="white")
 btn_mm1.pack(padx=(0,5), pady=(0,5), ipadx=90, ipady=15)  # increased width and height
@@ -712,7 +872,7 @@ btn_mm1.bind("<Leave>", lambda e: btn_mm1.config(bg="#888844"))
 #Button for M/M/S
 shadow2 = tk.Frame(main_container, bg="#333311")  # deeper shadow
 shadow2.pack(pady=25)
-btn_mms = tk.Button(shadow2, text="M/M/S", font=("Arial", 16, "bold"),
+btn_mms = tk.Button(shadow2, text="M/M/S MODEL", font=("Arial", 16, "bold"),
                     bg="#888844", fg="white", bd=0, relief="flat",
                     activebackground="#777733", activeforeground="white")
 btn_mms.pack(padx=(0,5), pady=(0,5), ipadx=90, ipady=15)  # increased width and height
